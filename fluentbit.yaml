@@ -1,0 +1,54 @@
+service:
+  log_level: info
+  flush: 1
+  daemon: off
+
+pipeline:
+  inputs:
+    - name: cpu
+      tag: cpu_metrics
+    - name: mem
+      tag: memory_metrics
+    - name: netif
+      tag: network_metrics
+      interface: ens4
+
+  filters:
+    - name: lua
+      match: memory_metrics
+      call: mem_util
+      code: |
+        function mem_util(tag, timestamp, record)
+            local mem_util = (record["Mem.used"] / record["Mem.total"]) * 100
+            record["mem_util"] = Round(mem_util, 2)
+            return 2, timestamp, record
+        end
+        function Round(num, dp)
+            local mult = 10^(dp or 0)
+            return math.floor(num * mult + 0.5)/mult
+        end
+    - name: modify
+      match: memory_metrics
+      Remove_wildcard:
+        - Swap
+      Remove_regex:
+       - 'free'
+       - 'total'
+       - 'used'
+    - name: modify
+      match: cpu_metrics
+      Remove_regex:
+        - 'cpu[\d].'
+        - 'user.'
+        - 'system.'
+    - name: modify
+      match: network_metrics
+      Remove_regex:
+        - 'packets$'
+        - 'errors$'
+
+  outputs:
+    - name: stdout
+      match: '*'
+      format: json
+      json_date_format: iso8601
